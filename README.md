@@ -1,9 +1,5 @@
 # AI-financial-insights
 
-Here’s a **README.md** summarizing everything you've implemented so far in your **Mini GenAI App** using Flask and OpenAI, including AI-powered insights, database querying, and dynamic prompt handling.
-
----
-
 ```markdown
 # Mini GenAI App – AI-Powered Insights with Flask & OpenAI
 
