@@ -42,4 +42,6 @@ def login():
 
     expires = datetime.timedelta(days=1)
     token = create_access_token(identity=user.id, expires_delta=expires)
+    
+    
     return jsonify({"access_token": token}), 200
