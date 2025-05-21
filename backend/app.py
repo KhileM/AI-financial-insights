@@ -1,7 +1,7 @@
 from flask import Flask
 from config import Config
 from models.database import db
-from backend.routes.reports import reports_bp
+from routes.reports import reports_bp
 
 
 def create_app():

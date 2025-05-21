@@ -1,5 +1,6 @@
 import csv
 import json
+from logs.logger_config import setup_logger
 from datetime import datetime
 from app import create_app
 from models.database import db
@@ -8,6 +9,9 @@ from models.transaction import Transaction
 from models.card import Card
 from models.mcc_code import MCCCode
 from models.user_profile import UserProfile
+from sqlalchemy.exc import IntegrityError
+
+logger = setup_logger("etl_loader", log_file="etl_loader.log")
 
 app = create_app()
 
@@ -22,7 +26,7 @@ def parse_int(value):
         cleaned = ''.join(c for c in value if c.isdigit())
         return int(cleaned)
     except Exception as e:
-        print(f"⚠️ parse_int error on value '{value}': {e}")
+        logger.warning(f"parse_int error on value '{value}': {e}")
         return 0
 
 def parse_bool(value):
@@ -54,43 +58,86 @@ def load_user_profiles():
                 )
                 db.session.add(profile)
             except Exception as e:
-                print(f"⚠️ Skipping user profile row due to error: {e}")
+                logger.warning(f"Skipping user profile row due to error: {e}")
         db.session.commit()
-    print("✅ User profiles loaded")
+    logger.info("User profiles loaded")
 
 
-def load_transactions():
-    with open("transactions_data.csv", newline='') as f:
-        reader = csv.DictReader(f)
-        print(f"CSV Headers: {reader.fieldnames}")
-        
-        for i, row in enumerate(reader, start=1):
-            if i > 2000:
-                break  # Stop after 2000 rows
+def load_transactions(verbose=False):
+    file_path = "transactions_data.csv"
+    row_limit = 2000
 
-            try:
-                timestamp = datetime.strptime(row["date"], "%Y-%m-%d %H:%M:%S")
+    success_count = 0
+    duplicate_count = 0
+    other_errors = 0
+    sample_errors = []
 
-                tx = Transaction(
-                    id=int(row["id"].replace(",", "")),
-                    user_id=int(row["client_id"].replace(",", "")),
-                    amount=float(row["amount"].replace("$", "").replace(",", "").strip()),
-                    category="unknown",
-                    description="",
-                    timestamp=timestamp,
-                    is_fraud=False
-                )
-                db.session.add(tx)
-            except Exception as e:
-                print(f"⚠️ Skipping transaction row #{i} due to error: {e}")
-        
-        db.session.commit()
-    print("✅ First 2000 transactions loaded")
+    try:
+        with open(file_path, newline='') as f:
+            reader = csv.DictReader(f)
+            logger.info(f"CSV Headers: {reader.fieldnames}")
+
+            for i, row in enumerate(reader, start=1):
+                if i > row_limit:
+                    break
+
+                try:
+                    tx = Transaction(
+                        id=int(row["id"].strip()),
+                        date=datetime.strptime(row["date"].strip(), "%Y-%m-%d %H:%M:%S"),
+                        client_id=int(row["client_id"].strip()),
+                        card_id=row["card_id"].strip(),
+                        amount=float(row["amount"].replace("$", "").replace(",", "").strip()),
+                        use_chip=row["use_chip"].strip().lower() in ("yes", "true", "1"),
+                        merchant_id=row["merchant_id"].strip(),
+                        merchant_city=row["merchant_city"].strip(),
+                        merchant_state=row["merchant_state"].strip(),
+                        zip=row["zip"].strip(),
+                        mcc=row["mcc"].strip(),
+                        errors=row["errors"].strip(),
+                        is_fraud=False,
+                        category="unknown",
+                        description=""
+                    )
+                    db.session.add(tx)
+                    db.session.commit()
+                    success_count += 1
+
+                    if verbose:
+                        logger.info(f"Row #{i} inserted")
+
+                except IntegrityError:
+                    db.session.rollback()
+                    duplicate_count += 1
+                    if verbose and duplicate_count <= 3:
+                        logger.warning(f"Duplicate transaction (ID={row['id'].strip()})")
+                except Exception as e:
+                    db.session.rollback()
+                    other_errors += 1
+                    if len(sample_errors) < 3:
+                        sample_errors.append((i, str(e)))
+                    if verbose:
+                        logger.error(f"Row #{i} error: {e}")
+
+        logger.info("Summary:")
+        logger.info(f"Inserted: {success_count}")
+        logger.info(f"Duplicates: {duplicate_count}")
+        logger.info(f"Other errors: {other_errors}")
+
+        if sample_errors:
+            logger.info("Sample Errors:")
+            for idx, err in sample_errors:
+                logger.info(f"Row #{idx}: {err}")
+
+    except FileNotFoundError:
+        logger.error(f"File not found: {file_path}")
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
 
 def load_cards():
     with open("cards_data.csv", newline='') as f:
         reader = csv.DictReader(f)
-        print(f"CSV Headers: {reader.fieldnames}")
+        logger.info(f"CSV Headers: {reader.fieldnames}")
         
         for i, row in enumerate(reader, start=1):
             if i > 2000:
@@ -116,29 +163,30 @@ def load_cards():
                 )
                 db.session.add(card)
             except Exception as e:
-                print(f"⚠️ Skipping card row #{i} due to error: {e}")
+                logger.warning(f"Skipping card row #{i} due to error: {e}")
         
         db.session.commit()
-    print("✅ First 2000 cards loaded")
+    logger.info("First 2000 cards loaded")
 
 def load_mcc_codes():
     with open("mcc_codes.json") as f:
-        mcc_data = json.load(f)  # assumes a list of {"code": ..., "description": ...}
-        for i, row in enumerate(mcc_data, start=1):
-            try:
-                if not MCCCode.query.filter_by(code=row["code"]).first():
-                    mcc = MCCCode(
-                        code=str(row["code"]),
-                        description=row["description"]
-                    ) 
-                    db.session.add(mcc)
-            except Exception as e:
-                print(f"⚠️ Skipping MCC row #{i} due to error: {e}")
-        db.session.commit()
-    print("✅ MCC Codes loaded")
+        mcc_data = json.load(f)
+
+    for i, (code, description) in enumerate(mcc_data.items(), start=1):
+        try:
+            if not MCCCode.query.filter_by(code=code).first():
+                mcc = MCCCode(
+                    code=str(code),
+                    description=description
+                )
+                db.session.add(mcc)
+        except Exception as e:
+            logger.warning(f"Skipping MCC row #{i} due to error: {e}")
+    
+    db.session.commit()
+    logger.info("MCC Codes loaded")
 
 with app.app_context():
-    # load_users()
     load_user_profiles()
     load_transactions()
     load_cards()
