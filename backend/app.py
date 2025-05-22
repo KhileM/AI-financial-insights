@@ -21,7 +21,9 @@ def create_app():
         app.register_blueprint(tx_bp)
         from routes.llm_routes import llm_bp
         app.register_blueprint(llm_bp)
-        
+        from routes.llm_routes import rag_bp
+        app.register_blueprint(rag_bp)
+ 
         db.create_all()  # Will create tables once models are defined
 
     return app

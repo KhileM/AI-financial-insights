@@ -170,7 +170,7 @@ def load_cards():
 
 def load_mcc_codes():
     with open("mcc_codes.json") as f:
-        mcc_data = json.load(f)
+        mcc_data = json.load(f) 
 
     for i, (code, description) in enumerate(mcc_data.items(), start=1):
         try:
