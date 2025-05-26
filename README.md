@@ -123,3 +123,32 @@ python app.py
 * [ ] Create architecture diagram and comparative report
 
 ---
+
+***Week 3 Summary:***
+
+**Implemented RAG (Retrieval-Augmented Generation) flow** using OpenAI embeddings and ChromaDB:
+
+  * Parsed and **chunked data** from `users_data.csv`.
+  * Embedded the chunks using **OpenAI’s `text-embedding-3-small`** model.
+  * Stored the embeddings in a **ChromaDB persistent client**.
+
+**Fixed ChromaDB migration issue** by updating from the deprecated `Settings()` configuration to `chromadb.PersistentClient()`.
+
+**Created retrieval logic**:
+
+  * Implemented `get_relevant_chunks()` to embed a user query and retrieve the most similar document chunks from ChromaDB.
+
+**Built LLM prompt formatter**:
+
+  * Added `build_prompt()` to construct a clean, structured prompt from the user query and context chunks.
+
+**Created API endpoint** for querying RAG:
+
+  * Built a `/rag/query` route (in `retrieve_and_ask.py`) to accept user queries, retrieve relevant chunks, and respond with a generated answer from the LLM.
+
+**Tested Postman integration** and verified prompt generation flow.
+
+***Week 4 Summmary:***
+
+
+
